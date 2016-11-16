@@ -1,0 +1,18 @@
+# pyc, npy, npz files
+*.pyc
+*.npy
+*.npz
+
+# data files
+reverse_modeling/data/*
+reverse_modeling/output/*
+
+# hidden files except .gitignore
+.*
+!.gitignore
+
+test*
+
+*.html
+# do not files in res directory
+!res/*
