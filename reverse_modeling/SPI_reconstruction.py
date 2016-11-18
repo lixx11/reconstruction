@@ -14,7 +14,8 @@ from scipy.stats import pearsonr
 class SPIAnnealing(object):
     """docstring for SPIAnnealing"""
     def __init__(self, init_T=1.0E5, inner_cooling_factor=0.99, outer_cooling_factor=0.5, batch_size=1E3, init_solution=None, init_step_size=1.0, step_shrink_factor=0.5,\
-                 intensity_data=None, mask=None, center=None):
+                 intensity_data=None, mask=None, center=None, mode='annealing'):
+        """<FRESHLY_INSERTED>"""
         super(SPIAnnealing, self).__init__()
         # annealing parameters
         self.init_T = init_T
@@ -32,6 +33,7 @@ class SPIAnnealing(object):
         self.intensity_data = intensity_data
         self.mask = mask
         self.center = center
+        self.mode = mode
 
         self.cost = self.calc_cost(init_solution)
         self.total_iter = 0
@@ -44,7 +46,6 @@ class SPIAnnealing(object):
         np.save('edge.npy', edge)
         edge_y, edge_x = np.where(edge)
         edge_xy = np.asarray([edge_x, edge_y]).T 
-        print edge_xy.shape
         N_mutant = int(self.step_size)
         mutant_ids = []
         count = 0
@@ -57,7 +58,6 @@ class SPIAnnealing(object):
                 ps = edge_xy[mutant_ids, :]
                 diff = ps - edge_xy[rn, :]
                 dists = np.sqrt(diff[:,0]**2. + diff[:,1]**2.)
-                # print dists.min()
                 if dists.min() > 1.:
                     mutant_ids.append(rn)
                     count += 1
@@ -84,13 +84,18 @@ class SPIAnnealing(object):
         if _exp > 0:
             return 1.
         else:
-            return math.exp(_exp)
-            # return 0.
+            if self.mode == 'annealing':
+                return math.exp(_exp)
+            elif self.mode == 'random_descent':
+                return 0.
+            else:
+                return None
 
     def run(self, max_iter=50):
-        global costs, accepted_costs, Ts
+        global costs, accepted_costs, best_ids, Ts
+        best_ids = []
         for n in xrange(max_iter):
-            if self.total_iter % self.batch_size == 0:  # restart
+            if self.total_iter != 0 and self.total_iter % self.batch_size == 0:  # restart
                 self.restart_list.append(self.best_solution)
                 self.solution = self.best_solution
                 self.cost = self.calc_cost(self.solution)
@@ -98,15 +103,15 @@ class SPIAnnealing(object):
                 costs.append(self.cost)
                 accepted_costs.append(self.cost)
                 Ts.append(self.T)
+                self.total_iter += 1
             new_solution = self.neighbor(self.solution)
             new_cost = self.calc_cost(new_solution)
             if new_cost < self.best_cost:
                 self.best_cost = new_cost
                 self.best_solution = new_solution
+                best_ids.append(self.total_iter)
             ap = self.acceptance_probability(self.cost, new_cost, self.T)
             if ap > random.uniform(0, 1):
-                print("updating at step %d, cost: %.4E -> %.4E"\
-                      %(self.total_iter, self.cost, new_cost))
                 self.solution = new_solution
                 self.cost = new_cost
             self.T *= self.inner_cooling_factor
@@ -122,7 +127,7 @@ def update():
     dt = now - last_time
     last_time = now 
     fps = 1.0 / dt 
-    print('fps: %.2f' %fps)
+    print('\rfps: %.2f' %fps),
 
     # update plot
     spi_annealing.run(max_iter=10)
@@ -132,14 +137,20 @@ def update():
 
     curve2.setData(costs)
     line2.setData(np.ones_like(costs) * costs[-1])
+    p2.setTitle('<p><font size="4">Searched Costs: %.3E</font></p>' %costs[-1])
     curve3.setData(accepted_costs)
     line3.setData(np.ones_like(accepted_costs) * accepted_costs[-1])
-    curve4.setData(Ts)
-    line4.setData(np.ones_like(Ts) * Ts[-1])
+    p3.setTitle('<p><font size="4">Accepted Costs: %.3E</font></p>' %accepted_costs[-1])
+    scatter3.addPoints(x=np.asarray(best_ids), y=np.asarray(accepted_costs)[best_ids], pen='g')
+    if mode == 'annealing':
+        curve4.setData(Ts)
+        line4.setData(np.ones_like(Ts) * Ts[-1])
+        p4.setTitle('<p><font size="4">Temperature: %.3E</font></p>' %Ts[-1])
 
 
 costs = []
 accepted_costs = []
+best_ids = []
 Ts = []
 
 if __name__ == '__main__':
@@ -152,20 +163,22 @@ if __name__ == '__main__':
     model_size = 45
     space_size = model_size * oversampling_ratio
     mask_size = 0
-    model = load_model('data/coreshell-proj.npy', model_size=model_size, space_size=space_size)
-    # model = make_model(model_size=model_size, space_size=space_size)
+    # model = load_model('data/coreshell-proj.npy', model_size=model_size, space_size=space_size)
+    model = make_model(model_size=model_size, space_size=space_size)
     model_range = [space_size//2 - model_size//2 - 10, space_size//2 + model_size//2 + 10]
     mask = make_square_mask(space_size, mask_size)
     intensity = np.abs(np.fft.fft2(model))**2.
 
+    mode = 'annealing'  # optimised method: 'annealing' or 'random_descent'
+
     # generate init model
-    init_model_size = 43
+    init_model_size = 49
     init_model = make_model(model_size=init_model_size, space_size=space_size)
 
-    spi_annealing = SPIAnnealing(init_solution=init_model, intensity_data=intensity, init_step_size=1, init_T=1.0E3)
+    spi_annealing = SPIAnnealing(init_solution=init_model, intensity_data=intensity, init_step_size=1, init_T=1.0E1, mode=mode)
 
     app = QtGui.QApplication([])
-    win = pg.GraphicsWindow('SPI Annealing')
+    win = pg.GraphicsWindow('SPI Reconstruction: %s' %mode)
 
     p11 = win.addPlot(title='<p><font size="4">Model</font></p>')
     im1 = pg.ImageItem()
@@ -199,11 +212,14 @@ if __name__ == '__main__':
     p3 = win.addPlot(title='<p><font size="4">Accepted Costs</font></p>', colspan=4)
     curve3 = p3.plot()
     line3 = p3.plot(pen=pg.mkPen('r'))
+    scatter3 = pg.ScatterPlotItem()
+    p3.addItem(scatter3)
     win.nextRow()
-    p4 = win.addPlot(title='<p><font size="4">Temperature</font></p>', colspan=4)
-    p4.setLogMode(y=True)
-    curve4 = p4.plot()
-    line4 = p4.plot(pen=pg.mkPen('r'))
+    if mode == 'annealing':
+        p4 = win.addPlot(title='<p><font size="4">Temperature</font></p>', colspan=4)
+        p4.setLogMode(y=True)
+        curve4 = p4.plot()
+        line4 = p4.plot(pen=pg.mkPen('r'))
 
     last_time = time.time()
     timer = QtCore.QTimer()
