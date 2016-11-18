@@ -92,8 +92,9 @@ class SPIAnnealing(object):
                 return None
 
     def run(self, max_iter=50):
-        global costs, accepted_costs, best_ids, Ts
+        global costs, accepted_costs, best_ids, better_ids, Ts
         best_ids = []
+        better_ids = []
         for n in xrange(max_iter):
             if self.total_iter != 0 and self.total_iter % self.batch_size == 0:  # restart
                 self.restart_list.append(self.best_solution)
@@ -111,9 +112,10 @@ class SPIAnnealing(object):
                 self.best_solution = new_solution
                 best_ids.append(self.total_iter)
             ap = self.acceptance_probability(self.cost, new_cost, self.T)
-            if ap > random.uniform(0, 1):
+            if ap >= random.uniform(0, 1):
                 self.solution = new_solution
                 self.cost = new_cost
+                better_ids.append(self.total_iter)
             self.T *= self.inner_cooling_factor
             costs.append(new_cost)
             accepted_costs.append(self.cost)
@@ -138,6 +140,7 @@ def update():
     curve2.setData(costs)
     line2.setData(np.ones_like(costs) * costs[-1])
     p2.setTitle('<p><font size="4">Searched Costs: %.3E</font></p>' %costs[-1])
+    scatter2.addPoints(x=np.asarray(better_ids), y=np.asarray(costs)[better_ids], pen='y')
     curve3.setData(accepted_costs)
     line3.setData(np.ones_like(accepted_costs) * accepted_costs[-1])
     p3.setTitle('<p><font size="4">Accepted Costs: %.3E</font></p>' %accepted_costs[-1])
@@ -151,6 +154,7 @@ def update():
 costs = []
 accepted_costs = []
 best_ids = []
+better_ids = []
 Ts = []
 
 if __name__ == '__main__':
@@ -172,10 +176,10 @@ if __name__ == '__main__':
     mode = 'annealing'  # optimised method: 'annealing' or 'random_descent'
 
     # generate init model
-    init_model_size = 49
+    init_model_size = 9
     init_model = make_model(model_size=init_model_size, space_size=space_size)
 
-    spi_annealing = SPIAnnealing(init_solution=init_model, intensity_data=intensity, init_step_size=1, init_T=1.0E1, mode=mode)
+    spi_annealing = SPIAnnealing(init_solution=init_model, intensity_data=intensity, init_step_size=1, init_T=1.0E-5, mode=mode)
 
     app = QtGui.QApplication([])
     win = pg.GraphicsWindow('SPI Reconstruction: %s' %mode)
@@ -208,6 +212,8 @@ if __name__ == '__main__':
     p2 = win.addPlot(title='<p><font size="4">Searched Costs</font></p>', colspan=4)
     curve2 = p2.plot()
     line2 = p2.plot(pen=pg.mkPen('r'))
+    scatter2 = pg.ScatterPlotItem()
+    p2.addItem(scatter2)
     win.nextRow()
     p3 = win.addPlot(title='<p><font size="4">Accepted Costs</font></p>', colspan=4)
     curve3 = p3.plot()
