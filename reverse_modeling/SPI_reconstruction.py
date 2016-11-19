@@ -14,7 +14,7 @@ from scipy.stats import pearsonr
 class SPIAnnealing(object):
     """docstring for SPIAnnealing"""
     def __init__(self, init_T=1.0E5, inner_cooling_factor=0.99, outer_cooling_factor=0.5, batch_size=1E3, init_solution=None, init_step_size=1.0, step_shrink_factor=0.5,\
-                 intensity_data=None, mask=None, center=None, mode='annealing'):
+                 intensity_data=None, mask=None, center=None):
         """<FRESHLY_INSERTED>"""
         super(SPIAnnealing, self).__init__()
         # annealing parameters
@@ -33,7 +33,6 @@ class SPIAnnealing(object):
         self.intensity_data = intensity_data
         self.mask = mask
         self.center = center
-        self.mode = mode
 
         self.cost = self.calc_cost(init_solution)
         self.total_iter = 0
@@ -43,7 +42,6 @@ class SPIAnnealing(object):
 
     def neighbor(self, old_solution):
         edge = get_edge(self.solution, width=1, find_edge='both')
-        np.save('edge.npy', edge)
         edge_y, edge_x = np.where(edge)
         edge_xy = np.asarray([edge_x, edge_y]).T 
         N_mutant = int(self.step_size)
@@ -84,12 +82,7 @@ class SPIAnnealing(object):
         if _exp > 0:
             return 1.
         else:
-            if self.mode == 'annealing':
-                return math.exp(_exp)
-            elif self.mode == 'random_descent':
-                return 0.
-            else:
-                return None
+            return math.exp(_exp)
 
     def run(self, max_iter=50):
         global costs, accepted_costs, best_ids, better_ids, Ts
@@ -145,10 +138,9 @@ def update():
     line3.setData(np.ones_like(accepted_costs) * accepted_costs[-1])
     p3.setTitle('<p><font size="4">Accepted Costs: %.3E</font></p>' %accepted_costs[-1])
     scatter3.addPoints(x=np.asarray(best_ids), y=np.asarray(accepted_costs)[best_ids], pen='g')
-    if mode == 'annealing':
-        curve4.setData(Ts)
-        line4.setData(np.ones_like(Ts) * Ts[-1])
-        p4.setTitle('<p><font size="4">Temperature: %.3E</font></p>' %Ts[-1])
+    curve4.setData(Ts)
+    line4.setData(np.ones_like(Ts) * Ts[-1])
+    p4.setTitle('<p><font size="4">Temperature: %.3E</font></p>' %Ts[-1])
 
 
 costs = []
@@ -173,16 +165,14 @@ if __name__ == '__main__':
     mask = make_square_mask(space_size, mask_size)
     intensity = np.abs(np.fft.fft2(model))**2.
 
-    mode = 'annealing'  # optimised method: 'annealing' or 'random_descent'
-
     # generate init model
     init_model_size = 9
     init_model = make_model(model_size=init_model_size, space_size=space_size)
 
-    spi_annealing = SPIAnnealing(init_solution=init_model, intensity_data=intensity, init_step_size=1, init_T=1.0E-5, mode=mode)
+    spi_annealing = SPIAnnealing(init_solution=init_model, intensity_data=intensity, init_step_size=1, init_T=1.0E1)
 
     app = QtGui.QApplication([])
-    win = pg.GraphicsWindow('SPI Reconstruction: %s' %mode)
+    win = pg.GraphicsWindow('SPI Annealing Reconstruction')
 
     p11 = win.addPlot(title='<p><font size="4">Model</font></p>')
     im1 = pg.ImageItem()
@@ -221,16 +211,15 @@ if __name__ == '__main__':
     scatter3 = pg.ScatterPlotItem()
     p3.addItem(scatter3)
     win.nextRow()
-    if mode == 'annealing':
-        p4 = win.addPlot(title='<p><font size="4">Temperature</font></p>', colspan=4)
-        p4.setLogMode(y=True)
-        curve4 = p4.plot()
-        line4 = p4.plot(pen=pg.mkPen('r'))
+    p4 = win.addPlot(title='<p><font size="4">Temperature</font></p>', colspan=4)
+    p4.setLogMode(y=True)
+    curve4 = p4.plot()
+    line4 = p4.plot(pen=pg.mkPen('r'))
 
     last_time = time.time()
     timer = QtCore.QTimer()
     timer.timeout.connect(update)
-    timer.start(0)
+    timer.start(500)
 
     win.show()
     app.exec_()
