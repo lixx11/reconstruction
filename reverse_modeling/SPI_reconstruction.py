@@ -23,22 +23,41 @@ Options:
     --update-period=<uf>                            Period to update plot  [default: 50].
 """
 
+import logging
+import datetime
+import sys
+import time
+time_stamp = datetime.datetime.now()
+log_file = time_stamp.strftime('%Y%m%d%H%M%S')
+print('logging into %s.log' %log_file)
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', filename='%s.log' %log_file)
+import platform
+import os
+import psutil
+if platform.system() == 'Linux':
+    logging.info('Running on Linux')
+    pid = os.getpid()
+    cpu_percents = psutil.cpu_percent(percpu=True, interval=1)
+    free_cpu_mask = None
+    for i in range(len(cpu_percents)//2):
+    	if cpu_percents[i] < 10.:
+    	    free_cpu_mask = 2**i
+            break
+    if free_cpu_mask is None:
+    	logging.critical('No free cpu found!')
+    	sys.exit()
+    os.system('taskset -p %d %s' %(free_cpu_mask, pid))
 from annealing import Annealing 
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtGui
 import numpy as np
-import sys
-import time
 from scipy.stats import linregress
 import random
 import math
 from util import *
 from scipy.stats import pearsonr
 from docopt import docopt
-import logging
-import datetime
-time_stamp = datetime.datetime.now()
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', filename='%s.log' %time_stamp.strftime('%Y%m%d%H%M%S'))
+
 
 
 class SPIAnnealing(object):
@@ -249,7 +268,7 @@ if __name__ == '__main__':
                                  mask=mask, ignore_negative=ignore_negative)
 
     app = QtGui.QApplication([])
-    win = pg.GraphicsWindow('SPI Annealing Reconstruction')
+    win = pg.GraphicsWindow('SPI Annealing Reconstruction %s' %log_file)
 
     p11 = win.addPlot(title='<p><font size="4">Model</font></p>')
     im1 = pg.ImageItem()
