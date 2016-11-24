@@ -1,3 +1,28 @@
+#! /opt/local/bin/python2.7
+
+"""
+Usage:
+    SPI_reconstruction.py [options]
+
+Options:
+    -h --help                                       Show this screen.
+    --model=<model_file>                            Model filename [default: None].
+    --model-size=<model_size>                       Model size in pixel [default: 45].
+    --oversampling-ratio=<oversampling_ratio>       Oversampling ratio when simulating diffraction patter [default: 9].
+    --mask-size=<mask_size>                         Mask size in pixel [default: 77].
+    --init-model-size=<init_model_size>             Init model size in pixel [default: 41].
+    --scale-factor=<scale_factor>                   Scale input intensity by multiply this scale factor [default: 5].
+    --init-T=<init_T>                               Init temprature [default: 1].
+    --inner-cooling-factor=<inner_cooling_factor>   Annealing parameter [default: 0.99].
+    --outer-cooling-factor=<outer_cooling_factor>   Annealing parameter [default: 0.5].
+    --batch-size=<batch_size>                       Annealing parameter: Iteration number in a round [default: 1000].
+    --init-step-size=<init_step_size>               Init step size [default: 1].
+    --step-shringk-factor=<step_shrink_factor>      Annealing parameter [default: 0.99].
+    --ignore-negative=<ignore_negative>             Ignore negative values while calculating cost [default: True].
+    --timer-interval=<interval>                     Timer interval [default: 0].
+    --update-period=<uf>                            Period to update plot  [default: 50].
+"""
+
 from annealing import Annealing 
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtGui
@@ -9,13 +34,17 @@ import random
 import math
 from util import *
 from scipy.stats import pearsonr
+from docopt import docopt
+import logging
+import datetime
+time_stamp = datetime.datetime.now()
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', filename='%s.log' %time_stamp.strftime('%Y%m%d%H%M%S'))
 
 
 class SPIAnnealing(object):
     """docstring for SPIAnnealing"""
-    def __init__(self, init_T=1.0E5, inner_cooling_factor=0.99, outer_cooling_factor=0.5, batch_size=1E3, init_solution=None, init_step_size=1.0, step_shrink_factor=0.5,\
-                 intensity_data=None, mask=None, center=None):
-        """<FRESHLY_INSERTED>"""
+    def __init__(self, init_T=1.0E5, inner_cooling_factor=0.99, outer_cooling_factor=0.5, batch_size=1E3, init_solution=None, init_step_size=1.0, step_shrink_factor=0.99,\
+                 ref_intensity=None, mask=None, ignore_negative=True):
         super(SPIAnnealing, self).__init__()
         # annealing parameters
         self.init_T = init_T
@@ -30,21 +59,32 @@ class SPIAnnealing(object):
         self.step_shrink_factor = step_shrink_factor
         self.total_iter = 0
         # SPI parameters/data
-        self.intensity_data = intensity_data
-        self.mask = mask
-        self.center = center
-
+        self.ref_intensity = ref_intensity
+        self.ref_intensity_valid = None
+        self.cal_intensity = None
+        self.cal_intensity_valid = None
+        if mask is None:
+            self.mask = np.ones_like(ref_intensity)
+        else:
+            self.mask = mask
+        self.ignore_negative = ignore_negative
         self.cost = self.calc_cost(init_solution)
         self.total_iter = 0
         self.best_solution = init_solution
         self.best_cost = self.calc_cost(init_solution)
         self.restart_list = []
+        self.debug_data = None
+
 
     def neighbor(self, old_solution):
         edge = get_edge(self.solution, width=1, find_edge='both')
-        edge_y, edge_x = np.where(edge)
+        edge_x, edge_y = np.where(edge)
         edge_xy = np.asarray([edge_x, edge_y]).T 
-        N_mutant = int(self.step_size)
+        # self.debug_data = self.solution.copy()
+        # self.debug_data[edge_xy[:,0], edge_xy[:,1]] += 0.5
+        N_edge = edge_xy.shape[0]
+        N_mutant = random.randint(1, max(min(int(self.step_size), N_edge//3), 1))
+        logging.debug('%d edge points, %d points to be mutated' %(edge_xy.shape[0], N_mutant))
         mutant_ids = []
         count = 0
         while count < N_mutant:
@@ -61,21 +101,35 @@ class SPIAnnealing(object):
                     count += 1
         new_solution = self.solution.copy()
         for n in xrange(N_mutant):
-            y, x = edge_xy[mutant_ids[n], :]
-            if self.solution[y, x] > 0:
-                new_solution[y, x] = 0
+            x, y = edge_xy[mutant_ids[n], :]
+            if self.solution[x, y] > 0:
+                new_solution[x, y] = 0
             else:
-                new_solution[y, x] = 1
+                new_solution[x, y] = 1
         return new_solution
 
     def calc_cost(self, solution):
-        this_intensity = np.abs(np.fft.fft2(solution))**2.
-        scaling_factor, _, _, _, _ = linregress(self.intensity_data.reshape(-1), this_intensity.reshape(-1))
-        diff = scaling_factor * this_intensity - self.intensity_data
-        # error = np.linalg.norm(diff, ord='fro')
-        score, _ = pearsonr(this_intensity.reshape(-1), self.intensity_data.reshape(-1))
-        error = 1 - score
-        return error
+        self.cal_intensity = np.abs(np.fft.fft2(solution))**2.
+        if self.ignore_negative:
+            mask = np.fft.fftshift(self.mask) * (self.cal_intensity > 0) * (self.ref_intensity > 0)
+        else:
+            mask = np.fft.fftshift(self.mask)
+        self.debug_data = mask
+        self.cal_intensity_valid = self.cal_intensity * mask 
+        self.ref_intensity_valid = self.ref_intensity * mask 
+        cal_intensity_valid_1d = self.cal_intensity_valid[np.where(self.cal_intensity_valid != 0.)]
+        ref_intensity_valid_1d = self.ref_intensity_valid[np.where(self.ref_intensity_valid != 0.)]
+        logging.debug('valid pixel number: %d/%d' %(ref_intensity_valid_1d.size, self.ref_intensity.size))
+        scaling_factor, _, _, _, _ = linregress(cal_intensity_valid_1d, ref_intensity_valid_1d)
+        logging.debug('scaling factor: %.3f' %scaling_factor)
+        diff = scaling_factor * cal_intensity_valid_1d - ref_intensity_valid_1d
+        error = np.linalg.norm(diff)
+        grad = np.gradient(solution)
+        TV = np.linalg.norm(np.sqrt(grad[0]**2. + grad[1]**2.).reshape(-1), ord=1)
+        logging.debug('2-norm of diff: %3e, TV norm: %3e' %(error, TV))
+        # score, _ = pearsonr(this_intensity.reshape(-1), self.ref_intensity.reshape(-1))
+        # error = 1 - score
+        return error + TV * 10
 
     def acceptance_probability(self, old_cost, new_cost, T):
         _exp = ((old_cost - new_cost) / T)
@@ -89,11 +143,13 @@ class SPIAnnealing(object):
         best_ids = []
         better_ids = []
         for n in xrange(max_iter):
+            logging.debug('===================STEP %d===================' %self.total_iter)
             if self.total_iter != 0 and self.total_iter % self.batch_size == 0:  # restart
                 self.restart_list.append(self.best_solution)
                 self.solution = self.best_solution
                 self.cost = self.calc_cost(self.solution)
                 self.T = self.init_T * math.pow(self.outer_cooling_factor, len(self.restart_list))
+                self.step_size = self.init_step_size
                 costs.append(self.cost)
                 accepted_costs.append(self.cost)
                 Ts.append(self.T)
@@ -114,6 +170,7 @@ class SPIAnnealing(object):
             accepted_costs.append(self.cost)
             Ts.append(self.T)
             self.total_iter += 1
+            self.step_size *= self.step_shrink_factor
 
 
 def update():
@@ -125,10 +182,9 @@ def update():
     print('\rfps: %.2f' %fps),
 
     # update plot
-    spi_annealing.run(max_iter=10)
+    spi_annealing.run(max_iter=int(argv['--update-period']))
     im3.setImage(spi_annealing.solution[model_range[0]:model_range[1], model_range[0]:model_range[1]])
-    current_intensity = np.abs(np.fft.fft2(spi_annealing.solution))**2.
-    im4.setImage(np.log(np.abs(np.fft.fftshift(current_intensity)+1.)))
+    im4.setImage(np.log(np.abs(np.fft.fftshift(spi_annealing.cal_intensity)))+1.)
 
     curve2.setData(costs)
     line2.setData(np.ones_like(costs) * costs[-1])
@@ -140,7 +196,7 @@ def update():
     scatter3.addPoints(x=np.asarray(best_ids), y=np.asarray(accepted_costs)[best_ids], pen='g')
     curve4.setData(Ts)
     line4.setData(np.ones_like(Ts) * Ts[-1])
-    p4.setTitle('<p><font size="4">Temperature: %.3E</font></p>' %Ts[-1])
+    p4.setTitle('<p><font size="4">Temperature: %.3E Step Size: %d</font></p>' %(Ts[-1], spi_annealing.step_size))
 
 
 costs = []
@@ -150,26 +206,47 @@ better_ids = []
 Ts = []
 
 if __name__ == '__main__':
+    logging.debug('Start of SPI reconstruction')
     # add signal to enable CTRL-C
     import signal
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
+    argv = docopt(__doc__)
+    logging.debug('options: %s' %str(argv))
+
     # generate test data
-    oversampling_ratio = 5
-    model_size = 45
+    oversampling_ratio = int(argv['--oversampling-ratio'])
+    model_size = int(argv['--model-size'])
     space_size = model_size * oversampling_ratio
-    mask_size = 0
-    # model = load_model('data/coreshell-proj.npy', model_size=model_size, space_size=space_size)
-    model = make_model(model_size=model_size, space_size=space_size)
+    mask_size = int(argv['--mask-size'])
+    model_file = argv['--model']
+    if model_file == 'None':
+        model = make_model(model_size=model_size, space_size=space_size)
+    else:
+        model = load_model(model_file, model_size=model_size, space_size=space_size)
     model_range = [space_size//2 - model_size//2 - 10, space_size//2 + model_size//2 + 10]
     mask = make_square_mask(space_size, mask_size)
     intensity = np.abs(np.fft.fft2(model))**2.
+    ref_intensity = intensity * np.fft.fftshift(mask)
 
     # generate init model
-    init_model_size = 9
+    init_model_size = int(argv['--init-model-size'])
     init_model = make_model(model_size=init_model_size, space_size=space_size)
 
-    spi_annealing = SPIAnnealing(init_solution=init_model, intensity_data=intensity, init_step_size=1, init_T=1.0E1)
+    scale_factor = float(argv['--scale-factor'])
+    init_T = float(argv['--init-T'])
+    inner_cooling_factor = float(argv['--inner-cooling-factor'])
+    outer_cooling_factor = float(argv['--outer-cooling-factor'])
+    batch_size = int(argv['--batch-size'])
+    init_step_size = int(argv['--init-step-size'])
+    step_shrink_factor = float(argv['--step-shringk-factor'])
+    ignore_negative = bool(argv['--ignore-negative'])
+
+    spi_annealing = SPIAnnealing(init_T=init_T, inner_cooling_factor=inner_cooling_factor,\
+                                 outer_cooling_factor=outer_cooling_factor, batch_size=batch_size,\
+                                 init_step_size=init_step_size, step_shrink_factor=step_shrink_factor,\
+                                 ref_intensity=scale_factor*ref_intensity, init_solution=init_model, \
+                                 mask=mask, ignore_negative=ignore_negative)
 
     app = QtGui.QApplication([])
     win = pg.GraphicsWindow('SPI Annealing Reconstruction')
@@ -183,7 +260,7 @@ if __name__ == '__main__':
     p12 = win.addPlot(title='<p><font size="4">Intensity</font></p>')
     im2 = pg.ImageItem()
     p12.addItem(im2)
-    im2.setImage(np.log(np.abs(np.fft.fftshift(intensity)+2.)))
+    im2.setImage(np.log(np.abs(np.fft.fftshift(ref_intensity)+1.)))
     p12.getViewBox().setAspectLocked(True)
 
     p13 = win.addPlot(title='<p><font size="4">Current Model</font></p>')
@@ -219,7 +296,8 @@ if __name__ == '__main__':
     last_time = time.time()
     timer = QtCore.QTimer()
     timer.timeout.connect(update)
-    timer.start(500)
+    timer.start(int(argv['--timer-interval']))
 
     win.show()
     app.exec_()
+    logging.debug('End of programe')

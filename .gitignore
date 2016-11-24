@@ -1,7 +1,7 @@
-# pyc, npy, npz files
 *.pyc
 *.npy
 *.npz
+*.log
 
 # data files
 reverse_modeling/data/*
