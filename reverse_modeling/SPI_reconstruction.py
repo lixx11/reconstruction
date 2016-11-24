@@ -94,7 +94,6 @@ class SPIAnnealing(object):
         self.restart_list = []
         self.debug_data = None
 
-
     def neighbor(self, old_solution):
         edge = get_edge(self.solution, width=1, find_edge='both')
         edge_x, edge_y = np.where(edge)
