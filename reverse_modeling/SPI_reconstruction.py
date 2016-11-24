@@ -21,16 +21,18 @@ Options:
     --ignore-negative=<ignore_negative>             Ignore negative values while calculating cost [default: True].
     --timer-interval=<interval>                     Timer interval [default: 0].
     --update-period=<uf>                            Period to update plot  [default: 50].
+    --cpuid=<abc>                                   Specify cpu id to run, -1 is auto-find free cpu. Only valid on linux platform [default: -1].
 """
 
+from docopt import docopt
+argv = docopt(__doc__)
 import logging
 import datetime
 import sys
 import time
-time_stamp = datetime.datetime.now()
-log_file = time_stamp.strftime('%Y%m%d%H%M%S')
-print('logging into %s.log' %log_file)
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', filename='%s.log' %log_file)
+time_stamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+print('logging into %s.log' %time_stamp)
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', filename='%s.log' %time_stamp)
 import platform
 import os
 import psutil
@@ -38,15 +40,19 @@ if platform.system() == 'Linux':
     logging.info('Running on Linux')
     pid = os.getpid()
     cpu_percents = psutil.cpu_percent(percpu=True, interval=1)
-    free_cpu_mask = None
-    for i in range(len(cpu_percents)//2):
-    	if cpu_percents[i] < 10.:
-    	    free_cpu_mask = 2**i
-            break
-    if free_cpu_mask is None:
-    	logging.critical('No free cpu found!')
-    	sys.exit()
-    os.system('taskset -p %d %s' %(free_cpu_mask, pid))
+    logging.debug('cpu percent: %s' %str(cpu_percents))
+    if argv['--cpuid'] != '-1':
+        cpuid = int(argv['--cpuid'])
+    else:
+        cpuid = None
+        for i in range(len(cpu_percents)):
+            if cpu_percents[i] < 10.:  # find a free cpu
+                cpuid = i
+                break
+        if cpuid is None:
+            logging.critical('No free cpu found!')
+            sys.exit()
+    os.system('taskset -p %s %s' %(str(hex(2**cpuid)), pid))
 from annealing import Annealing 
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtGui
@@ -56,8 +62,6 @@ import random
 import math
 from util import *
 from scipy.stats import pearsonr
-from docopt import docopt
-
 
 
 class SPIAnnealing(object):
@@ -93,7 +97,6 @@ class SPIAnnealing(object):
         self.best_cost = self.calc_cost(init_solution)
         self.restart_list = []
         self.debug_data = None
-
 
     def neighbor(self, old_solution):
         edge = get_edge(self.solution, width=1, find_edge='both')
@@ -230,7 +233,6 @@ if __name__ == '__main__':
     import signal
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
-    argv = docopt(__doc__)
     logging.debug('options: %s' %str(argv))
 
     # generate test data
@@ -268,7 +270,7 @@ if __name__ == '__main__':
                                  mask=mask, ignore_negative=ignore_negative)
 
     app = QtGui.QApplication([])
-    win = pg.GraphicsWindow('SPI Annealing Reconstruction %s' %log_file)
+    win = pg.GraphicsWindow('SPI Annealing Reconstruction %s' %time_stamp)
 
     p11 = win.addPlot(title='<p><font size="4">Model</font></p>')
     im1 = pg.ImageItem()
