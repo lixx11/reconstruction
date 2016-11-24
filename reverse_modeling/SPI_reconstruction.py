@@ -19,7 +19,7 @@ Options:
     --init-step-size=<init_step_size>               Init step size [default: 1].
     --step-shringk-factor=<step_shrink_factor>      Annealing parameter [default: 0.99].
     --ignore-negative=<ignore_negative>             Ignore negative values while calculating cost [default: True].
-    --timer-interval=<interval>                     Timer interval [default: 0].
+    --timer-interval=<interval>                     Timer interval in ms [default: 0].
     --update-period=<uf>                            Period to update plot  [default: 50].
     --cpuid=<abc>                                   Specify cpu id to run, -1 is auto-find free cpu. Only valid on linux platform [default: -1].
 """
