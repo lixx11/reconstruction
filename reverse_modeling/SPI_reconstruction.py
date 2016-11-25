@@ -21,7 +21,8 @@ Options:
     --ignore-negative=<ignore_negative>             Ignore negative values while calculating cost [default: True].
     --timer-interval=<interval>                     Timer interval [default: 0].
     --update-period=<uf>                            Period to update plot  [default: 50].
-    --cpuid=<abc>                                   Specify cpu id to run, -1 is auto-find free cpu. Only valid on linux platform [default: -1].
+    --cpuid=<cpuid>                                 Specify cpu id to run, -1 is auto-find free cpu. Only valid on linux platform [default: -1].
+    --TV-factor=<TV_factor>                         TV factor when calculating cost [default: 1.0].
 """
 
 from docopt import docopt
@@ -67,7 +68,7 @@ from scipy.stats import pearsonr
 class SPIAnnealing(object):
     """docstring for SPIAnnealing"""
     def __init__(self, init_T=1.0E5, inner_cooling_factor=0.99, outer_cooling_factor=0.5, batch_size=1E3, init_solution=None, init_step_size=1.0, step_shrink_factor=0.99,\
-                 ref_intensity=None, mask=None, ignore_negative=True):
+                 ref_intensity=None, mask=None, ignore_negative=True, TV_factor=1.):
         super(SPIAnnealing, self).__init__()
         # annealing parameters
         self.init_T = init_T
@@ -91,6 +92,7 @@ class SPIAnnealing(object):
         else:
             self.mask = mask
         self.ignore_negative = ignore_negative
+        self.TV_factor = TV_factor
         self.cost = self.calc_cost(init_solution)
         self.total_iter = 0
         self.best_solution = init_solution
@@ -151,7 +153,7 @@ class SPIAnnealing(object):
         logging.debug('2-norm of diff: %3e, TV norm: %3e' %(error, TV))
         # score, _ = pearsonr(this_intensity.reshape(-1), self.ref_intensity.reshape(-1))
         # error = 1 - score
-        return error + TV * 10
+        return error + TV * self.TV_factor
 
     def acceptance_probability(self, old_cost, new_cost, T):
         _exp = ((old_cost - new_cost) / T)
@@ -262,12 +264,13 @@ if __name__ == '__main__':
     init_step_size = int(argv['--init-step-size'])
     step_shrink_factor = float(argv['--step-shringk-factor'])
     ignore_negative = bool(argv['--ignore-negative'])
+    TV_factor = float(argv['--TV-factor'])
 
     spi_annealing = SPIAnnealing(init_T=init_T, inner_cooling_factor=inner_cooling_factor,\
                                  outer_cooling_factor=outer_cooling_factor, batch_size=batch_size,\
                                  init_step_size=init_step_size, step_shrink_factor=step_shrink_factor,\
                                  ref_intensity=scale_factor*ref_intensity, init_solution=init_model, \
-                                 mask=mask, ignore_negative=ignore_negative)
+                                 mask=mask, ignore_negative=ignore_negative, TV_factor=TV_factor)
 
     app = QtGui.QApplication([])
     win = pg.GraphicsWindow('SPI Annealing Reconstruction %s' %time_stamp)
