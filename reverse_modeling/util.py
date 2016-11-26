@@ -1,7 +1,30 @@
 import numpy as np 
 import scipy as sp 
-from cv2 import resize
+import cv2
 from skimage.morphology import disk, binary_dilation, binary_erosion
+
+
+def imrotate(img, center=None, angle=0.):
+    """Summary
+    
+    Args:
+        img (ndarray): Input image to rotate
+        center (array_like): Rotation center.
+        angle (float): Rotation angle in degree.
+    
+    Returns:
+        TYPE: ndarray with the same size of img
+    """
+    img = np.asarray(img, dtype=np.float)
+    rows, cols = img.shape
+    if center is None:
+        center = np.array([rows/2., cols/2.], dtype=np.float)
+    else:
+        center = np.asarray(center, dtype=np.float)
+    assert center.size == 2
+    M = cv2.getRotationMatrix2D((center[0], center[1]), angle, 1)
+    rot_img = cv2.warpAffine(img, M, (cols,rows))
+    return rot_img
 
 
 def load_model(filepath, model_size, space_size):
@@ -16,7 +39,7 @@ def load_model(filepath, model_size, space_size):
         TYPE: Description
     """
     image = np.load(filepath)
-    image = resize(image, (model_size, model_size))
+    image = cv2.resize(image, (model_size, model_size))
     space_center = (space_size - 1) // 2
     model_center = (model_size - 1) // 2
     model_range = (space_center - model_center, space_center - model_center + model_size)

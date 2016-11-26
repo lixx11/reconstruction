@@ -10,7 +10,8 @@ Options:
     --model-size=<model_size>                       Model size in pixel [default: 45].
     --oversampling-ratio=<oversampling_ratio>       Oversampling ratio when simulating diffraction patter [default: 9].
     --mask-size=<mask_size>                         Mask size in pixel [default: 77].
-    --init-model-size=<init_model_size>             Init model size in pixel [default: 41].
+    --init-model-size=<init_model_size>             Initial model size in pixel [default: 41].
+    --rot-angle=<rot_angle>                         Rotation angle of initial model in degree (anticlockwise) [default: 0.].
     --scale-factor=<scale_factor>                   Scale input intensity by multiply this scale factor [default: 5].
     --init-T=<init_T>                               Init temprature [default: 1].
     --inner-cooling-factor=<inner_cooling_factor>   Annealing parameter [default: 0.99].
@@ -62,6 +63,7 @@ import random
 import math
 from util import *
 from scipy.stats import pearsonr
+import cv2
 
 
 class SPIAnnealing(object):
@@ -241,8 +243,11 @@ if __name__ == '__main__':
     space_size = model_size * oversampling_ratio
     mask_size = int(argv['--mask-size'])
     model_file = argv['--model']
-    if model_file == 'None':
+    if model_file == 'None':  # generate a square model with rotation angle of 30 degree.
         model = make_model(model_size=model_size, space_size=space_size)
+        model = imrotate(model, angle=30)
+        model[model<0.5] = 0
+        model[model>=0.5] = 1
     else:
         model = load_model(model_file, model_size=model_size, space_size=space_size)
     model_range = [space_size//2 - model_size//2 - 10, space_size//2 + model_size//2 + 10]
@@ -252,7 +257,9 @@ if __name__ == '__main__':
 
     # generate init model
     init_model_size = int(argv['--init-model-size'])
+    rot_angle = float(argv['--rot-angle'])
     init_model = make_model(model_size=init_model_size, space_size=space_size)
+    init_model = imrotate(init_model, angle=rot_angle)
 
     scale_factor = float(argv['--scale-factor'])
     init_T = float(argv['--init-T'])
