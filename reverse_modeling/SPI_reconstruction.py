@@ -47,6 +47,11 @@ try:
     os.makedirs('%s' %output_dir)
 except Exception as e:
     raise e
+
+def print_with_timestamp(s):
+    now = datetime.datetime.now()
+    print('%s: %s' %(now, str(s)))
+
 print_with_timestamp('logging into %s.log' %os.path.join(output_dir, 'debug'))
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', filename='%s.log' %os.path.join(output_dir, 'debug'))
 import platform
@@ -252,11 +257,6 @@ def update():
 
     if spi_annealing.total_iter >= max_iter:
         app.quit()
-
-
-def print_with_timestamp(s):
-    now = datetime.datetime.now()
-    print('%s: %s' %(now, str(s)))
 
 
 # collect data during reconstruction
