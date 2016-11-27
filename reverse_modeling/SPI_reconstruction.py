@@ -227,7 +227,7 @@ def update():
     now = time.time()
     dt = now - last_time
     last_time = now 
-    fps = 1.0 / dt 
+    fps = 1.0 / dt * int(argv['--update-period']) 
     print_with_timestamp('fps: %.2f' %fps),
 
     # update plot
@@ -250,7 +250,6 @@ def update():
     record['current-model'] = spi_annealing.solution
     record['current-intensity'] = spi_annealing.cal_intensity
 
-    print max_iter
     if spi_annealing.total_iter >= max_iter:
         app.quit()
 
@@ -331,6 +330,7 @@ if __name__ == '__main__':
     max_iter = argv['--max-iter']
     if max_iter == 'auto':
         max_iter = 2 * min_iter
+        fix_max_iter = False
     else:
         max_iter = int(max_iter)
         fix_max_iter = True
