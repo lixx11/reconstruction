@@ -6,12 +6,18 @@ Usage:
 
 Options:
     -h --help                                       Show this screen.
-    --model=<model_file>                            Model filename [default: None].
+    --intensity=<intensity_file>                    Input intensity data as reference. Generate intensity from model if not specified.
+    --output-dir=<output_dir>                       Output directory storing logs, results. Default is './output/%s' %timestamp.
+    --min-iter=<min_iter>                           Minimum iteration of reconstruction [default: 10000].
+    --max-iter=<max_iter>                           Maximum iteration of reconstruction [default: auto].
+    --show-gui=<show_gui>                           Show GUI window True or False [default: True].
+    --model=<model_file>                            Model filename.
     --model-size=<model_size>                       Model size in pixel [default: 45].
     --oversampling-ratio=<oversampling_ratio>       Oversampling ratio when simulating diffraction patter [default: 9].
     --mask-size=<mask_size>                         Mask size in pixel [default: 77].
     --init-model-size=<init_model_size>             Initial model size in pixel [default: 41].
-    --rot-angle=<rot_angle>                         Rotation angle of initial model in degree (anticlockwise) [default: 0.].
+    --model-angle=<model_angle>                     Rotation angle of simulated model in degree (anticlockwise) [default: 0.].
+    --init-model-angle=<init_model_angle>           Rotation angle of initial model in degree (anticlockwise) [default: 0.].
     --scale-factor=<scale_factor>                   Scale input intensity by multiply this scale factor [default: 5].
     --init-T=<init_T>                               Init temprature [default: 1].
     --inner-cooling-factor=<inner_cooling_factor>   Annealing parameter [default: 0.99].
@@ -23,7 +29,7 @@ Options:
     --timer-interval=<interval>                     Timer interval in ms [default: 0].
     --update-period=<uf>                            Period to update plot  [default: 50].
     --cpuid=<cpuid>                                 Specify cpu id to run, -1 is auto-find free cpu. Only valid on linux platform [default: -1].
-    --TV-factor=<TV_factor>                         TV factor when calculating cost [default: 1.0].
+    --TV-factor=<TV_factor>                         TV factor when calculating cost [default: 0.].
 """
 
 from docopt import docopt
@@ -31,12 +37,20 @@ argv = docopt(__doc__)
 import logging
 import datetime
 import sys
-import time
-time_stamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-print('logging into %s.log' %time_stamp)
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', filename='%s.log' %time_stamp)
-import platform
 import os
+import time
+from util import *
+time_stamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+output_dir = argv['--output-dir']
+if output_dir is None:
+    output_dir = 'output/%s' %time_stamp
+try:
+    os.makedirs('%s' %output_dir)
+except Exception as e:
+    raise e
+print_with_timestamp('logging into %s.log' %os.path.join(output_dir, 'debug'))
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', filename='%s.log' %os.path.join(output_dir, 'debug'))
+import platform
 import psutil
 if platform.system() == 'Linux':
     logging.info('Running on Linux')
@@ -62,7 +76,6 @@ import numpy as np
 from scipy.stats import linregress
 import random
 import math
-from util import *
 from scipy.stats import pearsonr
 import cv2
 
@@ -164,11 +177,19 @@ class SPIAnnealing(object):
         else:
             return math.exp(_exp)
 
-    def run(self, max_iter=50):
-        global costs, accepted_costs, best_ids, better_ids, Ts
+    def run(self, N=50):
+        """Summary
+        
+        Args:
+            N (int, optional): Run N step in this run.
+        
+        Returns:
+            TYPE: None
+        """
+        global costs, accepted_costs, best_ids, better_ids, Ts, max_iter
         best_ids = []
         better_ids = []
-        for n in xrange(max_iter):
+        for n in xrange(N):
             logging.debug('===================STEP %d===================' %self.total_iter)
             if self.total_iter != 0 and self.total_iter % self.batch_size == 0:  # restart
                 self.restart_list.append(self.best_solution)
@@ -186,6 +207,8 @@ class SPIAnnealing(object):
                 self.best_cost = new_cost
                 self.best_solution = new_solution
                 best_ids.append(self.total_iter)
+                if not fix_max_iter:
+                    max_iter = max(max_iter, 2 * self.total_iter)
             ap = self.acceptance_probability(self.cost, new_cost, self.T)
             if ap >= random.uniform(0, 1):
                 self.solution = new_solution
@@ -200,16 +223,16 @@ class SPIAnnealing(object):
 
 
 def update():
-    global last_time, spi_annealing
+    global last_time, spi_annealing, max_iter, app
     now = time.time()
     dt = now - last_time
     last_time = now 
     fps = 1.0 / dt 
-    print('\rfps: %.2f' %fps),
+    print_with_timestamp('fps: %.2f' %fps),
 
     # update plot
-    spi_annealing.run(max_iter=int(argv['--update-period']))
-    im3.setImage(spi_annealing.solution[model_range[0]:model_range[1], model_range[0]:model_range[1]])
+    spi_annealing.run(N=int(argv['--update-period']))
+    im3.setImage(spi_annealing.solution)
     im4.setImage(np.log(np.abs(np.fft.fftshift(spi_annealing.cal_intensity)))+1.)
 
     curve2.setData(costs)
@@ -224,12 +247,24 @@ def update():
     line4.setData(np.ones_like(Ts) * Ts[-1])
     p4.setTitle('<p><font size="4">Temperature: %.3E Step Size: %d</font></p>' %(Ts[-1], spi_annealing.step_size))
 
+    record['current-model'] = spi_annealing.solution
+    record['current-intensity'] = spi_annealing.cal_intensity
 
+    print max_iter
+    if spi_annealing.total_iter >= max_iter:
+        app.quit()
+
+
+# collect data during reconstruction
 costs = []
 accepted_costs = []
 best_ids = []
 better_ids = []
 Ts = []
+record = {}
+record['costs'] = costs
+record['accepted-costs'] = accepted_costs
+record['Ts'] = Ts 
 
 if __name__ == '__main__':
     logging.debug('Start of SPI reconstruction')
@@ -239,29 +274,40 @@ if __name__ == '__main__':
 
     logging.debug('options: %s' %str(argv))
 
-    # generate test data
-    oversampling_ratio = int(argv['--oversampling-ratio'])
-    model_size = int(argv['--model-size'])
-    space_size = model_size * oversampling_ratio
-    mask_size = int(argv['--mask-size'])
-    model_file = argv['--model']
-    if model_file == 'None':  # generate a square model with rotation angle of 30 degree.
-        model = make_model(model_size=model_size, space_size=space_size)
-        model = imrotate(model, angle=30)
-        model[model<0.5] = 0
-        model[model>=0.5] = 1
+    # generate test data if no given intensity file
+    intensity_file = argv['--intensity']
+    if intensity_file is None:
+        oversampling_ratio = int(argv['--oversampling-ratio'])
+        model_size = int(argv['--model-size'])
+        space_size = model_size * oversampling_ratio
+        mask_size = int(argv['--mask-size'])
+        model_file = argv['--model']
+        model_angle = float(argv['--model-angle'])
+        if model_file is None:  # generate a square model with rotation angle of 30 degree.
+            model = make_model(model_size=model_size, space_size=space_size)
+            model = imrotate(model, angle=model_angle)
+            model[model<0.5] = 0
+            model[model>=0.5] = 1
+        else:
+            model = load_model(model_file, model_size=model_size, space_size=space_size)
+        mask = make_square_mask(space_size, mask_size)
+        intensity = np.abs(np.fft.fft2(model))**2.
+        record['model'] = model 
     else:
-        model = load_model(model_file, model_size=model_size, space_size=space_size)
-    model_range = [space_size//2 - model_size//2 - 10, space_size//2 + model_size//2 + 10]
-    mask = make_square_mask(space_size, mask_size)
-    intensity = np.abs(np.fft.fft2(model))**2.
+        model = None
+        intensity = np.fft.fftshift(np.load(intensity_file))
+        rows, cols = intensity.shape
+        assert rows == cols  # must be a square
+        space_size = rows
+        mask = np.ones_like(intensity)
     ref_intensity = intensity * np.fft.fftshift(mask)
+    record['ref-intensity'] = ref_intensity
 
     # generate init model
     init_model_size = int(argv['--init-model-size'])
-    rot_angle = float(argv['--rot-angle'])
+    init_model_angle = float(argv['--init-model-angle'])
     init_model = make_model(model_size=init_model_size, space_size=space_size)
-    init_model = imrotate(init_model, angle=rot_angle)
+    init_model = imrotate(init_model, angle=init_model_angle)
 
     scale_factor = float(argv['--scale-factor'])
     init_T = float(argv['--init-T'])
@@ -273,62 +319,88 @@ if __name__ == '__main__':
     ignore_negative = bool(argv['--ignore-negative'])
     TV_factor = float(argv['--TV-factor'])
 
+
     spi_annealing = SPIAnnealing(init_T=init_T, inner_cooling_factor=inner_cooling_factor,\
                                  outer_cooling_factor=outer_cooling_factor, batch_size=batch_size,\
                                  init_step_size=init_step_size, step_shrink_factor=step_shrink_factor,\
                                  ref_intensity=scale_factor*ref_intensity, init_solution=init_model, \
                                  mask=mask, ignore_negative=ignore_negative, TV_factor=TV_factor)
 
-    app = QtGui.QApplication([])
-    win = pg.GraphicsWindow('SPI Annealing Reconstruction %s' %time_stamp)
+    show_gui = argv['--show-gui']
+    min_iter = int(argv['--min-iter'])
+    max_iter = argv['--max-iter']
+    if max_iter == 'auto':
+        max_iter = 2 * min_iter
+    else:
+        max_iter = int(max_iter)
+        fix_max_iter = True
+    if show_gui == 'True':
+        app = QtGui.QApplication([])
+        win = pg.GraphicsWindow('SPI Annealing Reconstruction %s' %time_stamp)
 
-    p11 = win.addPlot(title='<p><font size="4">Model</font></p>')
-    im1 = pg.ImageItem()
-    p11.addItem(im1)
-    im1.setImage(model[model_range[0]:model_range[1], model_range[0]:model_range[1]])
-    p11.getViewBox().setAspectLocked(True)
+        p11 = win.addPlot(title='<p><font size="4">Model</font></p>')
+        im1 = pg.ImageItem()
+        p11.addItem(im1)
+        if model is None:
+            pass
+        else:
+            im1.setImage(model)
+            p11.getViewBox().setAspectLocked(True)  
 
-    p12 = win.addPlot(title='<p><font size="4">Intensity</font></p>')
-    im2 = pg.ImageItem()
-    p12.addItem(im2)
-    im2.setImage(np.log(np.abs(np.fft.fftshift(ref_intensity)+1.)))
-    p12.getViewBox().setAspectLocked(True)
+        p12 = win.addPlot(title='<p><font size="4">Intensity</font></p>')
+        im2 = pg.ImageItem()
+        p12.addItem(im2)
+        im2.setImage(np.log(np.abs(np.fft.fftshift(ref_intensity))+1.))
+        p12.getViewBox().setAspectLocked(True)  
 
-    p13 = win.addPlot(title='<p><font size="4">Current Model</font></p>')
-    im3 = pg.ImageItem()
-    p13.addItem(im3)
-    im3.setImage(init_model[model_range[0]:model_range[1], model_range[0]:model_range[1]])
-    p13.getViewBox().setAspectLocked(True)
+        p13 = win.addPlot(title='<p><font size="4">Current Model</font></p>')
+        im3 = pg.ImageItem()
+        p13.addItem(im3)
+        im3.setImage(init_model)
+        p13.getViewBox().setAspectLocked(True)  
 
-    p14 = win.addPlot(title='<p><font size="4">Current Intensity</font></p>')
-    im4 = pg.ImageItem()
-    p14.addItem(im4)
-    im4.setImage(np.random.rand(100,100))
-    p14.getViewBox().setAspectLocked(True)
+        p14 = win.addPlot(title='<p><font size="4">Current Intensity</font></p>')
+        im4 = pg.ImageItem()
+        p14.addItem(im4)
+        im4.setImage(np.random.rand(100,100))
+        p14.getViewBox().setAspectLocked(True)  
 
-    win.nextRow()
-    p2 = win.addPlot(title='<p><font size="4">Searched Costs</font></p>', colspan=4)
-    curve2 = p2.plot()
-    line2 = p2.plot(pen=pg.mkPen('r'))
-    scatter2 = pg.ScatterPlotItem()
-    p2.addItem(scatter2)
-    win.nextRow()
-    p3 = win.addPlot(title='<p><font size="4">Accepted Costs</font></p>', colspan=4)
-    curve3 = p3.plot()
-    line3 = p3.plot(pen=pg.mkPen('r'))
-    scatter3 = pg.ScatterPlotItem()
-    p3.addItem(scatter3)
-    win.nextRow()
-    p4 = win.addPlot(title='<p><font size="4">Temperature</font></p>', colspan=4)
-    p4.setLogMode(y=True)
-    curve4 = p4.plot()
-    line4 = p4.plot(pen=pg.mkPen('r'))
+        win.nextRow()
+        p2 = win.addPlot(title='<p><font size="4">Searched Costs</font></p>', colspan=4)
+        curve2 = p2.plot()
+        line2 = p2.plot(pen=pg.mkPen('r'))
+        scatter2 = pg.ScatterPlotItem()
+        p2.addItem(scatter2)
+        win.nextRow()
+        p3 = win.addPlot(title='<p><font size="4">Accepted Costs</font></p>', colspan=4)
+        curve3 = p3.plot()
+        line3 = p3.plot(pen=pg.mkPen('r'))
+        scatter3 = pg.ScatterPlotItem()
+        p3.addItem(scatter3)
+        win.nextRow()
+        p4 = win.addPlot(title='<p><font size="4">Temperature</font></p>', colspan=4)
+        p4.setLogMode(y=True)
+        curve4 = p4.plot()
+        line4 = p4.plot(pen=pg.mkPen('r'))  
 
-    last_time = time.time()
-    timer = QtCore.QTimer()
-    timer.timeout.connect(update)
-    timer.start(int(argv['--timer-interval']))
+        last_time = time.time()
+        timer = QtCore.QTimer()
+        timer.timeout.connect(update)
+        timer.start(int(argv['--timer-interval']))  
 
-    win.show()
-    app.exec_()
+        win.show()
+        app.exec_()
+    else:
+        while True:
+            spi_annealing.run(N=int(argv['--update-period']))
+            record['current-model'] = spi_annealing.solution
+            record['current-intensity'] = spi_annealing.cal_intensity
+            time.sleep(float(argv['--timer-interval']) / 1000)
+            print_with_timestamp('step: %d, cost: %.4e' %(spi_annealing.total_iter, spi_annealing.cost))
+            if spi_annealing.total_iter >= max_iter:
+                break
+
+    record_path = os.path.join(output_dir, 'record.h5')
+    dict2h5(record, record_path)
+    print_with_timestamp('record saved into %s' %record_path)
     logging.debug('End of programe')
