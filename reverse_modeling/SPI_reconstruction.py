@@ -277,6 +277,9 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     logging.debug('options: %s' %str(argv))
+    for key in argv:
+        if argv[key] is not None:
+            record[key] = argv[key]
 
     # generate test data if no given intensity file
     intensity_file = argv['--intensity']
@@ -312,6 +315,8 @@ if __name__ == '__main__':
     init_model_angle = float(argv['--init-model-angle'])
     init_model = make_model(model_size=init_model_size, space_size=space_size)
     init_model = imrotate(init_model, angle=init_model_angle)
+    init_intensity = np.abs(np.fft.fft2(init_model))**2.
+    record['init-intensity'] = init_intensity
 
     scale_factor = float(argv['--scale-factor'])
     init_T = float(argv['--init-T'])
@@ -367,7 +372,7 @@ if __name__ == '__main__':
         p14 = win.addPlot(title='<p><font size="4">Current Intensity</font></p>')
         im4 = pg.ImageItem()
         p14.addItem(im4)
-        im4.setImage(np.random.rand(100,100))
+        im4.setImage(np.log(np.abs(np.fft.fftshift(init_intensity))+1.))
         p14.getViewBox().setAspectLocked(True)  
 
         win.nextRow()
