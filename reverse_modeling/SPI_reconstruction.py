@@ -39,7 +39,6 @@ import datetime
 import sys
 import os
 import time
-from util import *
 time_stamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
 output_dir = argv['--output-dir']
 if output_dir is None:
@@ -70,6 +69,7 @@ if platform.system() == 'Linux':
             sys.exit()
     os.system('taskset -p %s %s' %(str(hex(2**cpuid)), pid))
 from annealing import Annealing 
+from util import *
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtGui
 import numpy as np
@@ -252,6 +252,11 @@ def update():
 
     if spi_annealing.total_iter >= max_iter:
         app.quit()
+
+
+def print_with_timestamp(s):
+    now = datetime.datetime.now()
+    print('%s: %s' %(now, str(s)))
 
 
 # collect data during reconstruction

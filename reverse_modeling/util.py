@@ -6,11 +6,6 @@ import datetime
 from skimage.morphology import disk, binary_dilation, binary_erosion
 
 
-def print_with_timestamp(s):
-    now = datetime.datetime.now()
-    print('%s: %s' %(now, str(s)))
-
-
 def dict2h5(dict_data, output):
     """Write dict data to given output in h5 format
     
