@@ -11,6 +11,7 @@ Options:
     --min-iter=<min_iter>                           Minimum iteration of reconstruction [default: 10000].
     --max-iter=<max_iter>                           Maximum iteration of reconstruction [default: auto].
     --show-gui=<show_gui>                           Show GUI window True or False [default: True].
+    --apply-SAXS-weight=<apply_SAXS_weight>         Apply SAXS weight to decrease the weight at low resolution [default: True].
     --model=<model_file>                            Model filename.
     --model-size=<model_size>                       Model size in pixel [default: 45].
     --oversampling-ratio=<oversampling_ratio>       Oversampling ratio when simulating diffraction patter [default: 9].
@@ -88,7 +89,7 @@ import cv2
 class SPIAnnealing(object):
     """docstring for SPIAnnealing"""
     def __init__(self, init_T=1.0E5, inner_cooling_factor=0.99, outer_cooling_factor=0.5, batch_size=1E3, init_solution=None, init_step_size=1.0, step_shrink_factor=0.99,\
-                 ref_intensity=None, mask=None, ignore_negative=True, TV_factor=1.):
+                 ref_intensity=None, mask=None, ignore_negative=True, TV_factor=1., weight=None):
         super(SPIAnnealing, self).__init__()
         # annealing parameters
         self.init_T = init_T
@@ -111,6 +112,10 @@ class SPIAnnealing(object):
             self.mask = np.ones_like(ref_intensity)
         else:
             self.mask = mask
+        if weight is None:
+            self.weight = np.ones_like(ref_intensity)
+        else:
+            self.weight = weight
         self.ignore_negative = ignore_negative
         self.TV_factor = TV_factor
         self.cost = self.calc_cost(init_solution)
@@ -159,8 +164,8 @@ class SPIAnnealing(object):
         else:
             mask = np.fft.fftshift(self.mask)
         self.debug_data = mask
-        self.cal_intensity_valid = self.cal_intensity * mask 
-        self.ref_intensity_valid = self.ref_intensity * mask 
+        self.cal_intensity_valid = self.cal_intensity * mask * np.fft.fftshift(self.weight)
+        self.ref_intensity_valid = self.ref_intensity * mask * np.fft.fftshift(self.weight)
         cal_intensity_valid_1d = self.cal_intensity_valid[np.where(self.cal_intensity_valid != 0.)]
         ref_intensity_valid_1d = self.ref_intensity_valid[np.where(self.ref_intensity_valid != 0.)]
         logging.debug('valid pixel number: %d/%d' %(ref_intensity_valid_1d.size, self.ref_intensity.size))
@@ -191,9 +196,9 @@ class SPIAnnealing(object):
         Returns:
             TYPE: None
         """
-        global costs, accepted_costs, best_ids, better_ids, Ts, max_iter
+        global costs, accepted_costs, best_ids, accepted_ids, Ts, max_iter
         best_ids = []
-        better_ids = []
+        accepted_ids = []
         for n in xrange(N):
             logging.debug('===================STEP %d===================' %self.total_iter)
             if self.total_iter != 0 and self.total_iter % self.batch_size == 0:  # restart
@@ -218,7 +223,7 @@ class SPIAnnealing(object):
             if ap >= random.uniform(0, 1):
                 self.solution = new_solution
                 self.cost = new_cost
-                better_ids.append(self.total_iter)
+                accepted_ids.append(self.total_iter)
             self.T *= self.inner_cooling_factor
             costs.append(new_cost)
             accepted_costs.append(self.cost)
@@ -238,12 +243,12 @@ def update():
     # update plot
     spi_annealing.run(N=int(argv['--update-period']))
     im3.setImage(spi_annealing.solution)
-    im4.setImage(np.log(np.abs(np.fft.fftshift(spi_annealing.cal_intensity)))+1.)
+    im4.setImage((np.abs(np.fft.fftshift(spi_annealing.cal_intensity)))+1.)
 
     curve2.setData(costs)
     line2.setData(np.ones_like(costs) * costs[-1])
     p2.setTitle('<p><font size="4">Searched Costs: %.3E</font></p>' %costs[-1])
-    scatter2.addPoints(x=np.asarray(better_ids), y=np.asarray(costs)[better_ids], pen='y')
+    scatter2.addPoints(x=np.asarray(accepted_ids), y=np.asarray(costs)[accepted_ids], pen='y')
     curve3.setData(accepted_costs)
     line3.setData(np.ones_like(accepted_costs) * accepted_costs[-1])
     p3.setTitle('<p><font size="4">Accepted Costs: %.3E</font></p>' %accepted_costs[-1])
@@ -263,7 +268,7 @@ def update():
 costs = []
 accepted_costs = []
 best_ids = []
-better_ids = []
+accepted_ids = []
 Ts = []
 record = {}
 record['costs'] = costs
@@ -328,12 +333,19 @@ if __name__ == '__main__':
     ignore_negative = bool(argv['--ignore-negative'])
     TV_factor = float(argv['--TV-factor'])
 
+    apply_SAXS_weight = argv['--apply-SAXS-weight']
+    if apply_SAXS_weight == 'True':
+        sy, sx = ref_intensity.shape
+        cy = (sy - 1.) / 2
+        cx = (sx - 1.) / 2
+        weight = calc_SAXS_weight(np.fft.fftshift(ref_intensity), [cx, cy], mask=np.fft.fftshift(ref_intensity>0))
+        record['weight'] = weight
 
     spi_annealing = SPIAnnealing(init_T=init_T, inner_cooling_factor=inner_cooling_factor,\
                                  outer_cooling_factor=outer_cooling_factor, batch_size=batch_size,\
                                  init_step_size=init_step_size, step_shrink_factor=step_shrink_factor,\
                                  ref_intensity=scale_factor*ref_intensity, init_solution=init_model, \
-                                 mask=mask, ignore_negative=ignore_negative, TV_factor=TV_factor)
+                                 mask=mask, ignore_negative=ignore_negative, TV_factor=TV_factor, weight=weight)
 
     show_gui = argv['--show-gui']
     min_iter = int(argv['--min-iter'])

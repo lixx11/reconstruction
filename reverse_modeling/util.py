@@ -6,6 +6,100 @@ import datetime
 from skimage.morphology import disk, binary_dilation, binary_erosion
 
 
+def calc_SAXS_weight(image, center, mask=None, ignore_negative=True):
+    """Summary
+    
+    Args:
+        image (2d array): Input diffraction image.
+        center (array_like): Center of input image.
+    
+    Returns:
+        TYPE: Weight matrix/image. The weight is calculated by 1 / SAXS(r).
+    """
+    image = np.asarray(image, dtype=np.float64)
+    assert len(image.shape) == 2
+    center = np.asarray(center, dtype=np.float64)
+    assert center.size == 2
+    if mask is not None:
+        mask = np.asarray(mask, dtype=np.float64)
+        assert mask.shape == image.shape
+        assert mask.min() >= 0. and mask.max() <= 1.
+        mask = (mask > 0.5).astype(np.float64)
+    else:
+        mask = np.ones_like(image)
+    if ignore_negative:
+        mask *= (image > 0)
+    SAXS = calc_radial_profile(image, center, mask=mask, mode='mean')
+    y, x = np.indices((image.shape))
+    r = np.sqrt((x - center[0])**2. + (y - center[1])**2.).astype(np.int)
+    weight = np.zeros_like(image)
+    for radii in xrange(r.max()):
+        weight[r==radii] = 1./SAXS[radii]
+    weight[np.isinf(weight)] = 0
+    return weight
+
+
+def calc_radial_profile(image, center, binsize=1., mask=None, mode='sum'):
+    """Summary
+    
+    Parameters
+    ----------
+    image : 2d array
+        Input image to calculate radial profile
+    center : array_like with 2 elements
+        Center of input image
+    binsize : float, optional
+        By default, the binsize is 1 in pixel.
+    mask : 2d array, optional
+        Binary 2d array used in radial profile calculation. The shape must be same with image. 1 means valid while 0 not.
+    mode : {'sum', 'mean'}, optional
+        'sum'
+        By default, mode is 'sum'. This returns the summation of each ring.
+    
+        'mean'
+        Mode 'mean' returns the average value of each ring.
+    
+    Returns
+    -------
+    Radial profile: 1d array
+        Output array, contains summation or mean value of each ring with binsize of 1 along rho axis.
+    
+    Raises
+    ------
+    ValueError
+        Description
+    """
+    image = np.asarray(image, dtype=np.float64)
+    assert len(image.shape) == 2
+    center = np.asarray(center, dtype=np.float64)
+    assert center.size == 2
+    if mask is not None:
+        mask = np.asarray(mask, dtype=np.float64)
+        assert mask.shape == image.shape
+        assert mask.min() >= 0. and mask.max() <= 1.
+        mask = (mask > 0.5).astype(np.float64)
+    else:
+        mask = np.ones_like(image)
+    y, x = np.indices((image.shape))
+    r = np.sqrt((x - center[0])**2. + (y - center[1])**2.)
+    bin_r = r / binsize
+    bin_r = np.round(bin_r).astype(int)
+    radial_sum = np.bincount(bin_r.ravel(), image.ravel())  # summation of each ring
+
+    if mode == 'sum':
+        return radial_sum
+    elif mode == 'mean':
+        if mask is None:
+            mask = np.ones(image.shape)
+        nr = np.bincount(bin_r.ravel(), mask.ravel())
+        radial_mean = radial_sum / nr
+        radial_mean[np.isinf(radial_mean)] = 0.
+        radial_mean[np.isnan(radial_mean)] = 0.
+        return radial_mean
+    else:
+        raise ValueError('Wrong mode: %s' %mode)
+
+
 def dict2h5(dict_data, output):
     """Write dict data to given output in h5 format
     
