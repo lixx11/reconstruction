@@ -107,15 +107,8 @@ class SPIAnnealing(object):
         self.ref_intensity = ref_intensity
         self.ref_intensity_valid = None
         self.cal_intensity = None
-        self.cal_intensity_valid = None
-        if mask is None:
-            self.mask = np.ones_like(ref_intensity)
-        else:
-            self.mask = mask
-        if weight is None:
-            self.weight = np.ones_like(ref_intensity)
-        else:
-            self.weight = weight
+        self.mask = mask
+        self.weight = weight
         self.ignore_negative = ignore_negative
         self.TV_factor = TV_factor
         self.cost = self.calc_cost(init_solution)
@@ -123,14 +116,13 @@ class SPIAnnealing(object):
         self.best_solution = init_solution
         self.best_cost = self.calc_cost(init_solution)
         self.restart_list = []
+        self.diff_intensity = None 
         self.debug_data = None
 
     def neighbor(self, old_solution):
         edge = get_edge(self.solution, width=1, find_edge='both')
         edge_x, edge_y = np.where(edge)
         edge_xy = np.asarray([edge_x, edge_y]).T 
-        # self.debug_data = self.solution.copy()
-        # self.debug_data[edge_xy[:,0], edge_xy[:,1]] += 0.5
         N_edge = edge_xy.shape[0]
         N_mutant = random.randint(1, max(min(int(self.step_size), N_edge//3), 1))
         logging.debug('%d edge points, %d points to be mutated' %(edge_xy.shape[0], N_mutant))
@@ -158,21 +150,25 @@ class SPIAnnealing(object):
         return new_solution
 
     def calc_cost(self, solution):
-        self.cal_intensity = np.abs(np.fft.fft2(solution))**2.
+        self.cal_intensity = np.fft.fftshift(np.abs(np.fft.fft2(solution))**2.)
         if self.ignore_negative:
-            mask = np.fft.fftshift(self.mask) * (self.cal_intensity > 0) * (self.ref_intensity > 0)
+            mask = self.mask * (self.cal_intensity > 0) * (self.ref_intensity > 0)
         else:
-            mask = np.fft.fftshift(self.mask)
+            mask = self.mask
         self.debug_data = mask
-        self.cal_intensity_valid = self.cal_intensity * mask * np.fft.fftshift(self.weight)
-        self.ref_intensity_valid = self.ref_intensity * mask * np.fft.fftshift(self.weight)
-        cal_intensity_valid_1d = self.cal_intensity_valid[np.where(self.cal_intensity_valid != 0.)]
-        ref_intensity_valid_1d = self.ref_intensity_valid[np.where(self.ref_intensity_valid != 0.)]
+        self.cal_intensity_valid = self.cal_intensity * mask
+        self.ref_intensity_valid = self.ref_intensity * mask
+        valid_indices = (self.cal_intensity_valid > 0) * (self.ref_intensity_valid > 0)
+        cal_intensity_valid_1d = self.cal_intensity_valid[valid_indices]
+        ref_intensity_valid_1d = self.ref_intensity_valid[valid_indices]
+        weight_valid_1d = self.weight[valid_indices]
         logging.debug('valid pixel number: %d/%d' %(ref_intensity_valid_1d.size, self.ref_intensity.size))
         scaling_factor, _, _, _, _ = linregress(cal_intensity_valid_1d, ref_intensity_valid_1d)
         logging.debug('scaling factor: %.3f' %scaling_factor)
-        diff = scaling_factor * cal_intensity_valid_1d - ref_intensity_valid_1d
-        error = np.linalg.norm(diff)
+        self.diff_intensity = np.zeros_like(self.ref_intensity)
+        _diff = (scaling_factor * cal_intensity_valid_1d - ref_intensity_valid_1d) * self.weight[valid_indices]
+        self.diff_intensity[valid_indices] = np.abs(_diff)
+        error = np.linalg.norm(self.diff_intensity)
         grad = np.gradient(solution)
         TV = np.linalg.norm(np.sqrt(grad[0]**2. + grad[1]**2.).reshape(-1), ord=1)
         logging.debug('2-norm of diff: %3e, TV norm: %3e' %(error, TV))
@@ -243,7 +239,8 @@ def update():
     # update plot
     spi_annealing.run(N=int(argv['--update-period']))
     im3.setImage(spi_annealing.solution)
-    im4.setImage(np.log(np.abs(np.fft.fftshift(spi_annealing.cal_intensity)))+1.)
+    im4.setImage(np.log(np.abs(spi_annealing.cal_intensity_valid * spi_annealing.weight) + 1.))
+    im5.setImage(np.log(np.abs(spi_annealing.diff_intensity) + 1.))
 
     curve2.setData(costs)
     line2.setData(np.ones_like(costs) * costs[-1])
@@ -259,6 +256,7 @@ def update():
 
     record['current-model'] = spi_annealing.solution
     record['current-intensity'] = spi_annealing.cal_intensity
+    record['diff-intensity'] = spi_annealing.diff_intensity
 
     if spi_annealing.total_iter >= max_iter:
         app.quit()
@@ -303,16 +301,16 @@ if __name__ == '__main__':
         else:
             model = load_model(model_file, model_size=model_size, space_size=space_size)
         mask = make_square_mask(space_size, mask_size)
-        intensity = np.abs(np.fft.fft2(model))**2.
+        intensity = np.fft.fftshift(np.abs(np.fft.fft2(model))**2.)
         record['model'] = model 
     else:
-        model = None
-        intensity = np.fft.fftshift(np.load(intensity_file))
+        model = np.ones_l
+        intensity = np.load(intensity_file)
         rows, cols = intensity.shape
         assert rows == cols  # must be a square
         space_size = rows
         mask = np.ones_like(intensity)
-    ref_intensity = intensity * np.fft.fftshift(mask)
+    ref_intensity = intensity * mask
     record['ref-intensity'] = ref_intensity
 
     # generate init model
@@ -320,7 +318,7 @@ if __name__ == '__main__':
     init_model_angle = float(argv['--init-model-angle'])
     init_model = make_model(model_size=init_model_size, space_size=space_size)
     init_model = imrotate(init_model, angle=init_model_angle)
-    init_intensity = np.abs(np.fft.fft2(init_model))**2.
+    init_intensity = np.fft.fftshift(np.abs(np.fft.fft2(init_model))**2.)
     record['init-intensity'] = init_intensity
 
     scale_factor = float(argv['--scale-factor'])
@@ -338,10 +336,10 @@ if __name__ == '__main__':
         sy, sx = ref_intensity.shape
         cy = (sy - 1.) / 2
         cx = (sx - 1.) / 2
-        weight = calc_SAXS_weight(np.fft.fftshift(ref_intensity), [cx, cy], mask=np.fft.fftshift(ref_intensity>0))
+        weight = calc_SAXS_weight(ref_intensity, [cx, cy], mask=(ref_intensity>0))
         record['weight'] = weight
     else:
-        weight = None
+        weight = np.ones_like(ref_intensity)
 
     spi_annealing = SPIAnnealing(init_T=init_T, inner_cooling_factor=inner_cooling_factor,\
                                  outer_cooling_factor=outer_cooling_factor, batch_size=batch_size,\
@@ -374,7 +372,7 @@ if __name__ == '__main__':
         p12 = win.addPlot(title='<p><font size="4">Intensity</font></p>')
         im2 = pg.ImageItem()
         p12.addItem(im2)
-        im2.setImage(np.log(np.abs(np.fft.fftshift(ref_intensity))+1.))
+        im2.setImage(np.log(np.abs(ref_intensity*weight)+1.))
         p12.getViewBox().setAspectLocked(True)  
 
         p13 = win.addPlot(title='<p><font size="4">Current Model</font></p>')
@@ -386,8 +384,14 @@ if __name__ == '__main__':
         p14 = win.addPlot(title='<p><font size="4">Current Intensity</font></p>')
         im4 = pg.ImageItem()
         p14.addItem(im4)
-        im4.setImage(np.log(np.abs(np.fft.fftshift(init_intensity))+1.))
+        im4.setImage(np.log(np.abs(init_intensity)+1.))
         p14.getViewBox().setAspectLocked(True)  
+
+        p15 = win.addPlot(title='<p><font size="4">Diff Intensity</font></p>')
+        im5 = pg.ImageItem()
+        p15.addItem(im5)
+        im5.setImage(np.log(np.abs(init_intensity - ref_intensity) * mask)+1.)
+        p15.getViewBox().setAspectLocked(True)  
 
         win.nextRow()
         p2 = win.addPlot(title='<p><font size="4">Searched Costs</font></p>', colspan=4)
