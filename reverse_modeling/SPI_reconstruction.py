@@ -243,7 +243,7 @@ def update():
     # update plot
     spi_annealing.run(N=int(argv['--update-period']))
     im3.setImage(spi_annealing.solution)
-    im4.setImage((np.abs(np.fft.fftshift(spi_annealing.cal_intensity)))+1.)
+    im4.setImage(np.log(np.abs(np.fft.fftshift(spi_annealing.cal_intensity)))+1.)
 
     curve2.setData(costs)
     line2.setData(np.ones_like(costs) * costs[-1])
@@ -340,6 +340,8 @@ if __name__ == '__main__':
         cx = (sx - 1.) / 2
         weight = calc_SAXS_weight(np.fft.fftshift(ref_intensity), [cx, cy], mask=np.fft.fftshift(ref_intensity>0))
         record['weight'] = weight
+    else:
+        weight = None
 
     spi_annealing = SPIAnnealing(init_T=init_T, inner_cooling_factor=inner_cooling_factor,\
                                  outer_cooling_factor=outer_cooling_factor, batch_size=batch_size,\
