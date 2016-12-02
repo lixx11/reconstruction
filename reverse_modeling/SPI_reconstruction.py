@@ -150,6 +150,7 @@ class SPIAnnealing(object):
         return new_solution
 
     def calc_cost(self, solution):
+        global scaling_factors
         self.cal_intensity = np.fft.fftshift(np.abs(np.fft.fft2(solution))**2.)
         if self.ignore_negative:
             mask = self.mask * (self.cal_intensity > 0) * (self.ref_intensity > 0)
@@ -164,6 +165,7 @@ class SPIAnnealing(object):
         weight_valid_1d = self.weight[valid_indices]
         logging.debug('valid pixel number: %d/%d' %(ref_intensity_valid_1d.size, self.ref_intensity.size))
         scaling_factor, _, _, _, _ = linregress(cal_intensity_valid_1d, ref_intensity_valid_1d)
+        scaling_factors.append(scaling_factor)
         logging.debug('scaling factor: %.3f' %scaling_factor)
         self.diff_intensity = np.zeros_like(self.ref_intensity)
         _diff = (scaling_factor * cal_intensity_valid_1d - ref_intensity_valid_1d) * self.weight[valid_indices]
@@ -268,10 +270,12 @@ accepted_costs = []
 best_ids = []
 accepted_ids = []
 Ts = []
+scaling_factors = []
 record = {}
 record['costs'] = costs
 record['accepted-costs'] = accepted_costs
 record['Ts'] = Ts 
+record['scalling_factors'] = scalling_factors
 
 if __name__ == '__main__':
     logging.debug('Start of SPI reconstruction')
