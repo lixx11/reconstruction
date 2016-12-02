@@ -275,7 +275,7 @@ record = {}
 record['costs'] = costs
 record['accepted-costs'] = accepted_costs
 record['Ts'] = Ts 
-record['scalling_factors'] = scalling_factors
+record['scalling_factors'] = scaling_factors
 
 if __name__ == '__main__':
     logging.debug('Start of SPI reconstruction')
