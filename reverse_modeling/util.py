@@ -61,7 +61,7 @@ def calc_SAXS_weight(image, center, mask=None, ignore_negative=True):
         mask *= (image > 0)
     SAXS = calc_radial_profile(image, center, mask=mask, mode='mean')
     y, x = np.indices((image.shape))
-    r = np.sqrt((x - center[0])**2. + (y - center[1])**2.).astype(np.int)
+    r = np.round(np.sqrt((x - center[0])**2. + (y - center[1])**2.)).astype(np.int)
     weight = np.zeros_like(image)
     for radii in xrange(int(min(center[0], center[1], image.shape[1]-center[0], image.shape[0]-center[1]))):
         weight[r==radii] = 1./SAXS[radii]
