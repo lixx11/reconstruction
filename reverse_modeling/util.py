@@ -4,7 +4,37 @@ import cv2
 import h5py
 import datetime
 from skimage.morphology import disk, binary_dilation, binary_erosion
+import math
 
+
+def calc_custom_weight(image_shape, center, mode='exp', param=None):
+    """Calculate the custom weight according to the mode and param.
+    
+    Args:
+        image_shape (array_like): Image shape. 
+        center (array_like): Center of image center.
+        mode (str, optional): Weight mode. Default is the 'exp', 1 / exp(-r / k)
+        param (None, optional): Parameter(s) to calculate weight, varies with different mode.
+    
+    Returns:
+        TYPE: Weight matrix/image. The weight is calculated according to the mode and param.
+    """
+    center = np.asarray(center, dtype=np.float64)
+    assert center.size == 2
+    image_shape = np.asarray(image_shape, dtype=np.int)
+    assert image_shape.size == 2
+    y, x = np.indices(image_shape)
+    r = np.sqrt((x - center[0])**2. + (y - center[1])**2.).astype(np.int)
+    weight = np.zeros(image_shape)
+    if mode == 'exp':
+        param = np.asarray(param, dtype=np.float64)
+        assert param.size == 1
+        k = float(param)
+        for radii in xrange(r.max()):
+            weight[r==radii] = math.exp(-radii/k)
+        return weight
+    else:
+        return None
 
 def calc_SAXS_weight(image, center, mask=None, ignore_negative=True):
     """Summary
@@ -33,7 +63,7 @@ def calc_SAXS_weight(image, center, mask=None, ignore_negative=True):
     y, x = np.indices((image.shape))
     r = np.sqrt((x - center[0])**2. + (y - center[1])**2.).astype(np.int)
     weight = np.zeros_like(image)
-    for radii in xrange(r.max()):
+    for radii in xrange(int(min(center[0], center[1], image.shape[1]-center[0], image.shape[0]-center[1]))):
         weight[r==radii] = 1./SAXS[radii]
     weight[np.isinf(weight)] = 0
     return weight

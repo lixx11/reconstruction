@@ -12,6 +12,9 @@ Options:
     --max-iter=<max_iter>                           Maximum iteration of reconstruction [default: auto].
     --show-gui=<show_gui>                           Show GUI window True or False [default: True].
     --apply-SAXS-weight=<apply_SAXS_weight>         Apply SAXS weight to decrease the weight at low resolution [default: True].
+    --apply-custom-weight=<apply_custom_weight>     Apply custom weight to modulate the weight at Fourier space [default: True].
+    --custom-weight-mode=<custom_weight_mode>       Custom weight mode [default: exp].
+    --custom-weight-param=<custom_weight_param>     Custom weight parameter [default: 10].
     --model=<model_file>                            Model filename.
     --model-size=<model_size>                       Model size in pixel [default: 45].
     --oversampling-ratio=<oversampling_ratio>       Oversampling ratio when simulating diffraction patter [default: 9].
@@ -335,15 +338,23 @@ if __name__ == '__main__':
     ignore_negative = bool(argv['--ignore-negative'])
     TV_factor = float(argv['--TV-factor'])
 
+    weight = np.ones_like(ref_intensity)
     apply_SAXS_weight = argv['--apply-SAXS-weight']
     if apply_SAXS_weight == 'True':
         sy, sx = ref_intensity.shape
         cy = (sy - 1.) / 2
         cx = (sx - 1.) / 2
-        weight = calc_SAXS_weight(ref_intensity, [cx, cy], mask=(ref_intensity>0))
-        record['weight'] = weight
-    else:
-        weight = np.ones_like(ref_intensity)
+        SAXS_weight = calc_SAXS_weight(ref_intensity, [cx, cy], mask=(ref_intensity>0))
+        record['SAXS-weight'] = SAXS_weight
+        weight *= SAXS_weight
+    apply_custom_weight = argv['--apply-custom-weight']
+    if apply_custom_weight == 'True':
+        custom_weight_mode = argv['--custom-weight-mode']
+        custom_weight_param = np.asarray(argv['--custom-weight-param'].split(','), dtype=np.float64)
+        custom_weight = calc_custom_weight(ref_intensity.shape, [cx, cy], param=custom_weight_param)
+        record['custom-weight'] = custom_weight
+        weight *= custom_weight
+    record['weight'] = weight
 
     spi_annealing = SPIAnnealing(init_T=init_T, inner_cooling_factor=inner_cooling_factor,\
                                  outer_cooling_factor=outer_cooling_factor, batch_size=batch_size,\
