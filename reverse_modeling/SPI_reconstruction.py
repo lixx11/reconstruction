@@ -11,8 +11,8 @@ Options:
     --min-iter=<min_iter>                           Minimum iteration of reconstruction [default: 10000].
     --max-iter=<max_iter>                           Maximum iteration of reconstruction [default: auto].
     --show-gui=<show_gui>                           Show GUI window True or False [default: True].
-    --apply-SAXS-weight=<apply_SAXS_weight>         Apply SAXS weight to decrease the weight at low resolution [default: True].
-    --apply-custom-weight=<apply_custom_weight>     Apply custom weight to modulate the weight at Fourier space [default: True].
+    --apply-SAXS-weight=<apply_SAXS_weight>         Apply SAXS weight to decrease the weight at low resolution [default: False].
+    --apply-custom-weight=<apply_custom_weight>     Apply custom weight to modulate the weight at Fourier space [default: False].
     --custom-weight-mode=<custom_weight_mode>       Custom weight mode [default: exp].
     --custom-weight-param=<custom_weight_param>     Custom weight parameter [default: 10].
     --model=<model_file>                            Model filename.
@@ -167,6 +167,7 @@ class SPIAnnealing(object):
         ref_intensity_valid_1d = self.ref_intensity_valid[valid_indices]
         weight_valid_1d = self.weight[valid_indices]
         logging.debug('valid pixel number: %d/%d' %(ref_intensity_valid_1d.size, self.ref_intensity.size))
+
         scaling_factor, _, _, _, _ = linregress(cal_intensity_valid_1d, ref_intensity_valid_1d)
         scaling_factors.append(scaling_factor)
         logging.debug('scaling factor: %.3f' %scaling_factor)
@@ -174,11 +175,14 @@ class SPIAnnealing(object):
         _diff = (scaling_factor * cal_intensity_valid_1d - ref_intensity_valid_1d) * self.weight[valid_indices]
         self.diff_intensity[valid_indices] = np.abs(_diff)
         error = np.linalg.norm(self.diff_intensity)
+
+        # score, _ = pearsonr(cal_intensity_valid_1d*self.weight[valid_indices],
+        #                     ref_intensity_valid_1d*self.weight[valid_indices])
+        # error = 1 - score
+
         grad = np.gradient(solution)
         TV = np.linalg.norm(np.sqrt(grad[0]**2. + grad[1]**2.).reshape(-1), ord=1)
         logging.debug('2-norm of diff: %3e, TV norm: %3e' %(error, TV))
-        # score, _ = pearsonr(this_intensity.reshape(-1), self.ref_intensity.reshape(-1))
-        # error = 1 - score
         return error + TV * self.TV_factor
 
     def acceptance_probability(self, old_cost, new_cost, T):
